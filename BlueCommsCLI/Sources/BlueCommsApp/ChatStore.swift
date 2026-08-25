@@ -41,6 +41,14 @@ final class ChatStore: ObservableObject {
     let shortID: String
     let fingerprint: String
 
+    /// ~/.bluecomms, or BLUECOMMS_HOME when you want a second identity on this Mac.
+    static var defaultDirectory: URL {
+        if let env = ProcessInfo.processInfo.environment["BLUECOMMS_HOME"], !env.isEmpty {
+            return URL(fileURLWithPath: env, isDirectory: true)
+        }
+        return IdentityStore.defaultDirectory
+    }
+
     /// The radio. nil only if launch failed (disk / identity error).
     private var manager: NetworkManager?
     /// Peer ids that currently have a finished handshake.
@@ -67,8 +75,7 @@ final class ChatStore: ObservableObject {
     }
 
     /// Loads identity + history from disk. Does not start the radio — see `start()`.
-    init() throws {
-        let directory = IdentityStore.defaultDirectory
+    init(directory: URL = ChatStore.defaultDirectory) throws {
         let manager = try NetworkManager(store: IdentityStore(directory: directory))
         self.manager = manager
         localName = manager.deviceName

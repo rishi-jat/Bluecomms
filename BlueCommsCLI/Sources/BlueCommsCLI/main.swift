@@ -19,7 +19,7 @@ import BlueCommsCore
 
 let manager: NetworkManager
 do {
-    manager = try NetworkManager()
+    manager = try NetworkManager(store: IdentityStore(directory: dataDirectory()))
 } catch {
     fputs("Failed to load device identity: \(error)\n", stderr)
     exit(1)
@@ -153,8 +153,30 @@ private func printHelp() {
           disconnect           Close the current session
           quit / exit          Stop advertising and leave
           <text>               Send a message once connected
+
+        Two copies on one Mac need different identities:
+          swift run BlueCommsCLI --data-dir /tmp/bluecomms-a
+          swift run BlueCommsCLI --data-dir /tmp/bluecomms-b
         """
     )
+}
+
+/// Default is ~/.bluecomms. Override with --data-dir or BLUECOMMS_HOME so
+/// two processes on the same Mac do not share an identity and hide each other.
+private func dataDirectory() -> URL {
+    let args = CommandLine.arguments
+    if let flag = args.firstIndex(of: "--data-dir") {
+        let valueIndex = args.index(after: flag)
+        if valueIndex < args.endIndex {
+            return URL(fileURLWithPath: args[valueIndex], isDirectory: true)
+        }
+        fputs("Usage: --data-dir <path>\n", stderr)
+        exit(2)
+    }
+    if let env = ProcessInfo.processInfo.environment["BLUECOMMS_HOME"], !env.isEmpty {
+        return URL(fileURLWithPath: env, isDirectory: true)
+    }
+    return IdentityStore.defaultDirectory
 }
 
 private func printPrompt() {

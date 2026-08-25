@@ -217,7 +217,11 @@ public final class NetworkManager: @unchecked Sendable {
 
     /// Start an offer/chunk transfer. Session must already be ready.
     public func send(file url: URL, to peerID: String, id: UUID = UUID()) {
+        // Hold any security-scoped bookmark across the hop onto `queue`.
+        // PeerConnection takes its own nested access for the transfer lifetime.
+        let accessed = url.startAccessingSecurityScopedResource()
         onQueueAsync {
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
             guard let conn = self.sessions[peerID], conn.isReadyForMessages else {
                 self.emitLog("No session with that peer. Connect first, then send the file.")
                 return
@@ -272,8 +276,10 @@ public final class NetworkManager: @unchecked Sendable {
         browser = nil
 
         let params = Self.makeParameters()
+        // `.bonjour` never fills Result.metadata. We require TXT `id` below,
+        // so without TXT the Nearby list stays empty even when peers exist.
         let newBrowser = NWBrowser(
-            for: .bonjour(type: Self.serviceType, domain: Self.serviceDomain),
+            for: .bonjourWithTXTRecord(type: Self.serviceType, domain: Self.serviceDomain),
             using: params
         )
         newBrowser.stateUpdateHandler = { [weak self] state in
@@ -336,6 +342,9 @@ public final class NetworkManager: @unchecked Sendable {
         let gone = previous.subtracting(next.keys)
         for id in gone {
             lastSeenAt[id] = Date()
+        }
+        if next.isEmpty, !results.isEmpty {
+            emitLog("[BROWSER] Saw \(results.count) Bonjour row(s) but none had a usable device id.")
         }
         discoveredByID = next
         let snapshot = orderedPeers()
@@ -561,28 +570,22 @@ extension DiscoveredPeer {
     /// Ignore rows with no `id` TXT or a proto we do not speak.
     init?(result: NWBrowser.Result) {
         guard case .service(let name, _, _, _) = result.endpoint else { return nil }
-        guard case .bonjour(let txt) = result.metadata,
-              let txtID = Self.txtString(txt, "id"),
-              UUID(uuidString: txtID) != nil else {
+        guard case .bonjour(let txt) = result.metadata else { return nil }
+        let record = txt.dictionary
+        guard let txtID = record["id"], UUID(uuidString: txtID) != nil else {
             return nil
         }
-        let id = txtID
-        var displayName = name
-        if let txtName = Self.txtString(txt, "name"), !txtName.isEmpty {
-            displayName = txtName
-        }
-        if let proto = Self.txtString(txt, "proto"),
-           proto != String(HandshakePayload.protoVersion) {
+        if let proto = record["proto"], proto != String(HandshakePayload.protoVersion) {
             return nil
         }
 
-        self.id = id
-        self.displayName = displayName
+        self.id = txtID
+        if let txtName = record["name"], !txtName.isEmpty {
+            self.displayName = txtName
+        } else {
+            self.displayName = name
+        }
         self.bonjourName = name
         self.endpoint = result.endpoint
-    }
-
-    private static func txtString(_ txt: NWTXTRecord, _ key: String) -> String? {
-        txt[key]
     }
 }

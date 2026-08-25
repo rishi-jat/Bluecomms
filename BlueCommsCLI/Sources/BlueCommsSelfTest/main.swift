@@ -50,6 +50,7 @@ struct BlueCommsSelfTest {
             ("file name sanitizes slashes", testFileNameSanitize),
             ("file offer rejects huge size", testFileOfferRejectsHugeSize),
             ("file stream reassembles with matching hash", testFileStreamReassembles),
+            ("two local peers discover and send a file", testTwoPeersSendFile),
         ]
 
         for (name, body) in cases {
@@ -423,15 +424,16 @@ private func testTwoPeersSendFile() throws {
         receiver.stop()
     }
 
-    let deadline = Date().addingTimeInterval(12)
-    while discovered.isEmpty, Date() < deadline {
+    let discoverDeadline = Date().addingTimeInterval(15)
+    while discovered.isEmpty, Date() < discoverDeadline {
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
     }
     guard let peer = discovered.first else {
         throw Failure(message: "peers did not discover each other on the local radio")
     }
     sender.connectToPeer(id: peer.id)
-    while !sessionReady, Date() < deadline {
+    let handshakeDeadline = Date().addingTimeInterval(10)
+    while !sessionReady, Date() < handshakeDeadline {
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
     }
     guard sessionReady else {
